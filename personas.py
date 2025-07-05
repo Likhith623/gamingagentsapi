@@ -1,5 +1,6 @@
 from crewai import Agent, LLM
 import os
+from bot_prompt import BOT_PROMPTS
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -9,16 +10,21 @@ llm = LLM(
 )
 
 def load_persona_prompt(persona_name: str) -> str:
-    prompt_path = f"persona_prompts/{persona_name}.txt"
-    if os.path.exists(prompt_path):
-        with open(prompt_path, "r", encoding="utf-8") as f:
-            return f.read()
-    return ""
+    # Check if it's a custom persona file first
+    try:
+        with open(f"persona_prompts/{persona_name}.txt", "r") as file:
+            return file.read()
+    except FileNotFoundError:
+        # If not found, check in BOT_PROMPTS
+        return BOT_PROMPTS.get(persona_name, "")
 
 def get_game_agent(persona_name: str, username: str):
     prompt = load_persona_prompt(persona_name)
     if not prompt:
         return None
+
+    # Get persona details from prompt content
+    persona_info = _extract_persona_info(persona_name, prompt)
 
     if persona_name == "jayden_lim":
         return {
@@ -40,9 +46,76 @@ def get_game_agent(persona_name: str, username: str):
                 verbose = False
             )   
         }
-
-    # You can add more personas here...
+    
+    # Handle all other personas from BOT_PROMPTS
+    elif persona_name in BOT_PROMPTS:
+        return {
+            "name": persona_info["name"],
+            "origin": persona_info["origin"],
+            "relationship": persona_info["relationship"],
+            "prompt": prompt,
+            "agent": Agent(
+                role=f'Creative {persona_info["relationship"]}',
+                goal=f'Engage in an ongoing, multi-turn creative activity with the user ({username}) until the user explicitly signals to stop. Always maintain the persona of {persona_info["name"]}. Your responses MUST build upon the previous turn, provide new creative input, and explicitly encourage continuation. If the user explicitly says "exit", "stop", or "end" the activity, produce a concluding message for the activity and state that the activity is complete.',
+                backstory=(
+                    f"This is your complete persona and character: {prompt}. "
+                    f"You have a knack for weaving narratives that are both engaging and authentic to your character. You are interacting with {username} as their {persona_info['relationship']}. "
+                    f"You always maintain your persona, cultural background, and speaking style as defined in your character description. "
+                    f"Your primary directive in an activity is to keep the conversation going, always providing a relevant, creative response that fits your character and explicitly prompting the user for their next contribution to continue the activity. You will ONLY stop if the user explicitly says 'exit', 'stop', or 'end'."
+                ),
+                llm=llm,
+                allow_delegation=False,
+                verbose=False
+            )
+        }
 
     return None
 
-
+def _extract_persona_info(persona_name: str, prompt: str):
+    """Extract persona information from the prompt or persona name"""
+    
+    # Default values
+    name = persona_name.replace("_", " ").title()
+    origin = "Unknown"
+    relationship = "friend"
+    
+    # Try to extract from prompt content
+    prompt_lower = prompt.lower()
+    
+    # Extract name if available in prompt
+    if "your name is" in prompt_lower:
+        try:
+            name_start = prompt_lower.find("your name is") + 12
+            name_end = prompt_lower.find(".", name_start)
+            if name_end == -1:
+                name_end = prompt_lower.find("\n", name_start)
+            if name_end != -1:
+                extracted_name = prompt[name_start:name_end].strip()
+                if extracted_name:
+                    name = extracted_name
+        except:
+            pass
+    
+    # Extract origin from persona name patterns
+    if "delhi" in persona_name:
+        origin = "Delhi"
+    elif "tokyo" in persona_name or "japanese" in persona_name:
+        origin = "Tokyo"
+    elif "berlin" in persona_name:
+        origin = "Berlin"
+    elif "singapore" in persona_name:
+        origin = "Singapore"
+    
+    # Extract relationship from persona name
+    if "mentor" in persona_name:
+        relationship = "mentor"
+    elif "romantic" in persona_name:
+        relationship = "romantic partner"
+    elif "friend" in persona_name:
+        relationship = "friend"
+    
+    return {
+        "name": name,
+        "origin": origin,
+        "relationship": relationship
+    }
