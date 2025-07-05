@@ -1,5 +1,6 @@
 from fastapi import Request
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from personas import get_game_agent
 from activities import get_activity_task
@@ -9,6 +10,15 @@ import os
 
 load_dotenv()
 app = FastAPI()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify your website's domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class ChatRequest(BaseModel):
     persona: str
