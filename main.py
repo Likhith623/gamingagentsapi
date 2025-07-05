@@ -21,8 +21,6 @@ class ChatRequest(BaseModel):
 @app.post("/chat")
 def chat(req: ChatRequest, request: Request):
     print("🧪 DEBUG | GEMINI_API_KEY =", os.getenv("GEMINI_API_KEY"))
-    if request.headers.get("x-api-key") != os.getenv("API_KEY"):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
     persona_data = get_game_agent(req.persona, req.username)
     if not persona_data:
         raise HTTPException(status_code=404, detail="Persona not found")
