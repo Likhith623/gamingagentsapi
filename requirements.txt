@@ -4,3 +4,4 @@ uvicorn
 crewai
 litellm
 python-dotenv
+supabase

@@ -6,6 +6,8 @@ from personas import get_game_agent
 from activities import get_activity_task
 from crewai import Task, Crew, Process
 from dotenv import load_dotenv
+from supabase import create_client, Client
+from datetime import datetime
 import os
 import httpx
 import time
@@ -105,6 +107,10 @@ def get_current_user_xp_with_retry(email, bot_id, retries=5, delay=1.0):
         time.sleep(delay)
     return result  # Return last result even if not found
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 @app.post("/chat")
 def chat(req: ChatRequest, request: Request):
     print("🧪 DEBUG | GEMINI_API_KEY =", os.getenv("GEMINI_API_KEY"))
@@ -145,10 +151,22 @@ def chat(req: ChatRequest, request: Request):
             xp_amount=xp_amount,
             reason=f"Completed activity: {req.activity}"
         )
-        # Wait a bit longer if XP award was successful
         if xp_response and xp_response.get("success"):
-            time.sleep(2.5)  # Wait 2.5 seconds before fetching XP
+            time.sleep(2.5)
         xp_status = get_current_user_xp_with_retry(req.email, req.persona)
+
+        # Extract the string response from CrewOutput
+        bot_response_str = result.raw if hasattr(result, "raw") else str(result)
+
+        log_activity_message_to_supabase(
+            email=req.email,
+            bot_id=req.persona,
+            user_message=req.user_input,
+            bot_response=bot_response_str,
+            platform="game_activity",
+            activity_name=req.activity
+        )
+
         print("DEBUG | XP Award Response:", xp_response)
         print("DEBUG | XP Status Response:", xp_status)
         return {
@@ -159,3 +177,27 @@ def chat(req: ChatRequest, request: Request):
         }
     except Exception as e:
         return {"error": str(e)}
+
+def log_activity_message_to_supabase(email, bot_id, user_message, bot_response, platform="game_activity", activity_name=None):
+    now = datetime.utcnow().isoformat()
+    # Ensure bot_response is a string
+    if isinstance(bot_response, dict):
+        bot_response = bot_response.get("raw") or bot_response.get("response") or str(bot_response)
+    data = {
+        "email": email,
+        "bot_id": bot_id,
+        "user_message": user_message,
+        "bot_response": bot_response,
+        "requested_time": now,
+        "platform": platform
+    }
+    if activity_name:
+        data["activity_name"] = activity_name
+    print("📝 [log_activity_message_to_supabase] Inserting data:", data)  # <--- ADD THIS LINE
+    try:
+        res = supabase.table("message_paritition").insert(data).execute()
+        print("✅ Activity message logged to Supabase:", res)
+        return res
+    except Exception as e:
+        print("❌ Failed to log activity message to Supabase:", e)
+        return None
